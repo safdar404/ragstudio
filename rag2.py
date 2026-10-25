@@ -189,6 +189,9 @@ st.set_page_config(page_title="RAG Document Studio", page_icon="✦", layout="wi
                    initial_sidebar_state="expanded")
 st.markdown(ui.CSS + THEME_CSS, unsafe_allow_html=True)
 
+from aesthetic_theme import apply_theme
+apply_theme()
+
 ss = st.session_state
 for key, default in {"history": [], "usage": {}, "index": None, "queued": None, "failed": None,
                      "lab": None, "nonce": 0, "report": None}.items():
@@ -714,3 +717,4 @@ with tab_export:
             except ValueError as e:
                 st.error(str(e))
     st.caption("Saved libraries contain your document text. Store them as carefully as the originals.")
+

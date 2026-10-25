@@ -1,6 +1,6 @@
-"""Document Studio — retrieval-augmented Q&A over PDFs, Word, images and text files.
+"""RAG Document Studio — retrieval-augmented Q&A over PDFs, Word, images and text files.
 
-Run:  streamlit run rag.py
+Run:  streamlit run rag2.py
 """
 from __future__ import annotations
 
@@ -22,9 +22,172 @@ from studio.index import DocumentIndex, tokenize
 from studio.llm import LLM, error_message
 from studio.pipeline import build_context, citations, retrieve
 
-st.set_page_config(page_title="Document Studio", page_icon="✦", layout="wide",
+APP_TITLE = "RAG Document Studio"
+
+# ═════════════════════════════════════════════════════════════════════════
+# Vibrant AI theme (layered on top of studio.ui.CSS)
+# ═════════════════════════════════════════════════════════════════════════
+THEME_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+:root{
+  --ink:#140f2e; --muted:#6c6890; --line:#e8e4f8; --surface:rgba(255,255,255,.82); --bg:#f8f6ff;
+  --violet:#7c3aed; --fuchsia:#d946ef; --pink:#ec4899; --cyan:#06b6d4; --indigo:#4f46e5;
+  --accent:var(--violet); --accent-soft:#f1eaff; --accent-ink:#5b21b6;
+  --grad:linear-gradient(120deg,#7c3aed 0%,#c026d3 50%,#06b6d4 100%);
+  --grad-soft:linear-gradient(120deg,rgba(124,58,237,.10),rgba(217,70,239,.08),rgba(6,182,212,.10));
+  --glow:0 10px 30px -10px rgba(124,58,237,.45);
+  --shadow:0 1px 2px rgba(20,15,46,.04),0 8px 28px -12px rgba(76,29,149,.18);
+}
+html,body,.stApp,[class*="css"],button,input,textarea{font-family:"Plus Jakarta Sans",Inter,ui-sans-serif,system-ui,"Segoe UI",sans-serif}
+.stApp{color:var(--ink);
+  background:
+    radial-gradient(900px 500px at 105% -10%,rgba(6,182,212,.13),transparent 60%),
+    radial-gradient(800px 500px at -10% 10%,rgba(124,58,237,.13),transparent 60%),
+    radial-gradient(700px 500px at 50% 110%,rgba(217,70,239,.10),transparent 60%),
+    #f8f6ff;background-attachment:fixed}
+.block-container{max-width:1260px}
+h1,h2,h3,h4,h5{letter-spacing:-.015em}
+
+/* ── Sidebar ── */
+[data-testid="stSidebar"]{background:rgba(255,255,255,.72);backdrop-filter:blur(14px);border-right:1px solid var(--line)}
+[data-testid="stSidebar"] [data-testid="stExpander"]{background:#fff;border:1px solid var(--line);border-radius:14px}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover{color:var(--violet)}
+.side-brand{display:flex;align-items:center;gap:11px;margin:.1rem 0 1.1rem}
+.side-brand .mark{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-size:18px;color:#fff;
+  background:var(--grad);box-shadow:var(--glow)}
+.side-brand b{display:block;font-size:15.5px;font-weight:800;color:var(--ink);line-height:1.15}
+.side-brand b em{font-style:normal;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.side-brand span{font-size:10.5px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
+.usage div{background:#fff;border:1px solid var(--line);border-radius:12px;position:relative;overflow:hidden}
+.usage div:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--grad)}
+.usage b{color:var(--accent-ink)}
+
+/* ── Hero ── */
+.rx-hero{position:relative;overflow:hidden;border-radius:24px;padding:30px 34px;margin-bottom:20px;color:#fff;
+  background:#0d0824;box-shadow:0 24px 60px -28px rgba(76,29,149,.7);isolation:isolate;
+  display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap}
+.rx-hero:before{content:"";position:absolute;inset:-40%;z-index:-1;
+  background:
+    radial-gradient(28% 40% at 32% 38%,rgba(124,58,237,.95),transparent 70%),
+    radial-gradient(26% 36% at 68% 36%,rgba(6,182,212,.7),transparent 70%),
+    radial-gradient(30% 34% at 52% 66%,rgba(217,70,239,.75),transparent 70%);
+  filter:blur(36px);animation:rxDrift 18s ease-in-out infinite alternate}
+.rx-hero:after{content:"";position:absolute;inset:0;z-index:-1;opacity:.18;
+  background-image:linear-gradient(rgba(255,255,255,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.12) 1px,transparent 1px);
+  background-size:28px 28px;mask-image:linear-gradient(180deg,#000,transparent 85%)}
+@keyframes rxDrift{0%{transform:translate(0,0) rotate(0)}100%{transform:translate(4%,-3%) rotate(8deg)}}
+.rx-eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.2em;font-weight:700;
+  padding:5px 12px;border-radius:999px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2)}
+.rx-eyebrow i{width:7px;height:7px;border-radius:50%;background:#22d3ee;box-shadow:0 0 10px #22d3ee;animation:rxPulse 2s infinite}
+@keyframes rxPulse{50%{opacity:.35}}
+.rx-hero h1{margin:12px 0 6px;padding:0;font-size:34px;font-weight:800;color:#fff;letter-spacing:-.03em}
+.rx-hero h1 span{background:linear-gradient(90deg,#c4b5fd,#f0abfc 45%,#67e8f9);-webkit-background-clip:text;background-clip:text;color:transparent}
+.rx-hero p{margin:0;color:#d6d0f5;font-size:14.5px;max-width:560px}
+.rx-hero.big{flex-direction:column;align-items:flex-start;padding:48px 44px}
+.rx-hero.big h1{font-size:46px}
+.rx-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
+.rx-chips span{padding:6px 13px;border-radius:999px;font-size:12px;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2)}
+.rx-stats{display:flex;gap:10px;flex-wrap:wrap}
+.rx-stat{min-width:104px;padding:11px 16px;border-radius:16px;background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(8px)}
+.rx-stat b{display:block;font-size:24px;font-weight:800;line-height:1.1;
+  background:linear-gradient(90deg,#fff,#e9d5ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.rx-stat small{font-size:11px;color:#c9c2ef;letter-spacing:.06em;text-transform:uppercase}
+
+/* ── Tabs: gradient pills (Streamlit ≥1.60 React-Aria markup, plus legacy BaseWeb) ── */
+[data-testid="stTabs"] [role="tablist"],[data-baseweb="tab-list"]{gap:6px;padding:6px;border:1px solid var(--line)!important;
+  border-radius:16px;background:rgba(255,255,255,.75);backdrop-filter:blur(10px);width:fit-content;max-width:100%;
+  box-shadow:var(--shadow);margin-bottom:.6rem}
+[data-testid="stTab"],[data-baseweb="tab"]{padding:8px 16px!important;border-radius:11px!important;font-weight:600;
+  color:var(--muted);transition:all .2s;height:auto!important}
+[data-testid="stTab"]:hover,[data-baseweb="tab"]:hover{color:var(--violet);background:var(--accent-soft)}
+[data-testid="stTab"][aria-selected="true"],[data-baseweb="tab"][aria-selected="true"]{background:var(--grad)!important;box-shadow:var(--glow)}
+[data-testid="stTab"][aria-selected="true"] p,[data-baseweb="tab"][aria-selected="true"] p{color:#fff!important}
+[data-testid="stTab"] > div:not([data-testid]),[data-baseweb="tab-highlight"],[data-baseweb="tab-border"]{display:none!important}
+
+/* ── Cards, chat, inputs ── */
+[data-testid="stExpander"]{background:var(--surface);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow)}
+[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"]){border-color:var(--line)!important;border-radius:18px}
+[data-testid="stChatMessage"]{background:var(--surface);backdrop-filter:blur(10px);border:1px solid var(--line);
+  border-radius:20px;padding:16px 20px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarCustom"]):before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--grad)}
+[data-testid="stChatMessageAvatarCustom"],[data-testid="stChatMessage"] > div:first-child img{border-radius:12px}
+[data-testid="stChatInput"]{border-radius:18px!important;border:1.5px solid transparent!important;
+  background:linear-gradient(#fff,#fff) padding-box,var(--grad) border-box!important;box-shadow:var(--glow)}
+[data-testid="stFileUploaderDropzone"]{background:var(--grad-soft);border:2px dashed #c4b5fd;border-radius:18px}
+[data-testid="stFileUploaderDropzone"]:hover{border-color:var(--fuchsia)}
+.stTextInput input:focus,.stTextArea textarea:focus{border-color:var(--violet)!important;box-shadow:0 0 0 3px rgba(124,58,237,.15)!important}
+
+/* ── Buttons ── */
+.stButton>button,.stDownloadButton>button,.stFormSubmitButton>button{border-radius:12px;font-weight:600;border:1px solid var(--line);transition:all .2s}
+.stButton>button:hover,.stDownloadButton>button:hover{border-color:#c4b5fd;color:var(--violet);transform:translateY(-1px);box-shadow:var(--shadow)}
+button[kind="primary"],button[kind="primaryFormSubmit"]{background:var(--grad)!important;background-size:160% 100%!important;
+  border:0!important;color:#fff!important;box-shadow:var(--glow)}
+button[kind="primary"]:hover,button[kind="primaryFormSubmit"]:hover{background-position:100% 0!important;color:#fff!important;transform:translateY(-1px)}
+button[kind="tertiary"]{color:var(--violet)!important}
+
+/* ── Accent recolouring of built-in widgets (config.toml primary colour is teal) ── */
+[data-testid="stSlider"] [role="group"] > div > div:first-child{filter:hue-rotate(88deg) saturate(1.35)}
+[data-testid="stSlider"] [role="group"] > div > div[data-rac]{background-color:var(--violet)!important;
+  box-shadow:0 0 0 4px rgba(124,58,237,.18),0 0 12px rgba(217,70,239,.5)!important}
+[data-testid="stSliderThumbValue"] p{color:var(--violet)!important;font-weight:700}
+[data-testid="stCheckbox"] label[data-selected="true"] > div:first-of-type{background:var(--grad)!important}
+[data-testid="stRadioOption"][data-selected="true"] > div > div:first-child{background-color:var(--violet)!important;
+  border-color:var(--violet)!important;box-shadow:0 0 0 3px rgba(124,58,237,.18)}
+[data-baseweb="slider"] [role="slider"]{background:var(--violet)!important}
+[data-baseweb="tag"]{background:var(--accent-soft)!important;color:var(--accent-ink)!important}
+[data-baseweb="tag"] span{color:var(--accent-ink)!important}
+
+/* ── Pills, empty states, source cards ── */
+.pill{background:#fff;border-color:var(--line)}
+.pill.ok{background:var(--accent-soft);border-color:#ddd0ff;color:var(--accent-ink)}
+.pill.kind{background:var(--grad);color:#fff;border:0}
+.empty{background:var(--surface);border:2px dashed #d8ccfb;border-radius:22px}
+.empty .icon{display:inline-grid;place-items:center;width:64px;height:64px;border-radius:20px;background:var(--grad);box-shadow:var(--glow);font-size:30px}
+.empty h3{margin-top:.8rem}
+.src{border-radius:14px;background:#fff;transition:box-shadow .2s}
+.src:hover{box-shadow:var(--shadow)}
+.src.cited{border-left:0;background:linear-gradient(#fff,#fff) padding-box,var(--grad) border-box;border:1.5px solid transparent}
+.src-id{background:var(--ink)}
+.src.cited .src-id{background:var(--grad)}
+.src-tag{background:var(--accent-soft);color:var(--accent-ink)}
+.bar i{background:var(--grad)}
+mark{background:linear-gradient(90deg,#f5d0fe,#ddd6fe);color:#3b0764}
+[data-testid="stCode"],[data-testid="stDataFrame"]{border-radius:14px;overflow:hidden}
+::selection{background:#e9d5ff}
+[data-testid="stMarkdownContainer"] code{color:var(--accent-ink);background:var(--accent-soft);border-radius:6px;padding:1px 6px}
+@media(max-width:700px){.rx-hero{padding:22px}.rx-hero h1{font-size:26px}.rx-hero.big{padding:28px 22px}.rx-hero.big h1{font-size:32px}}
+</style>
+"""
+
+
+def hero(stats: list[tuple[str, str]] | None = None, big: bool = False) -> str:
+    stats_html = "".join(f'<div class="rx-stat"><b>{ui.esc(v)}</b><small>{ui.esc(k)}</small></div>'
+                         for k, v in stats or [])
+    chips = ('<div class="rx-chips"><span>📄 PDF + scans</span><span>📝 Word</span><span>🖼️ Images</span>'
+             '<span>📊 CSV · TXT · MD</span><span>⚡ Hybrid search</span><span>📌 Cited answers</span></div>'
+             if big else "")
+    stats_block = f'<div class="rx-stats">{stats_html}</div>' if stats_html else ""
+    return (f'<div class="rx-hero{" big" if big else ""}"><div>'
+            f'<div class="rx-eyebrow"><i></i>AI DOCUMENT INTELLIGENCE</div>'
+            f'<h1>✦ <span>RAG Document Studio</span></h1>'
+            f'<p>Chat with your documents, get grounded answers, and inspect every source behind them.</p>'
+            f'{chips}</div>{stats_block}</div>')
+
+
+def sidebar_brand(version: str) -> str:
+    return (f'<div class="side-brand"><div class="mark">✦</div><div><b><em>RAG</em> Document Studio</b>'
+            f'<span>AI workspace · v{ui.esc(version)}</span></div></div>')
+
+
+def cite_badges(answer: str) -> str:
+    """[S1] / [S1, S3] → violet Streamlit badges (no raw HTML from model output)."""
+    return ui.style_citations(answer).replace(":green-badge[", ":violet-badge[")
+
+st.set_page_config(page_title="RAG Document Studio", page_icon="✦", layout="wide",
                    initial_sidebar_state="expanded")
-st.markdown(ui.CSS, unsafe_allow_html=True)
+st.markdown(ui.CSS + THEME_CSS, unsafe_allow_html=True)
 
 ss = st.session_state
 for key, default in {"history": [], "usage": {}, "index": None, "queued": None, "failed": None,
@@ -36,7 +199,7 @@ for key, default in {"history": [], "usage": {}, "index": None, "queued": None, 
 # Connect
 # ═════════════════════════════════════════════════════════════════════════
 def connect_screen():
-    st.markdown(ui.hero(big=True), unsafe_allow_html=True)
+    st.markdown(hero(big=True), unsafe_allow_html=True)
     _, col, _ = st.columns([1, 1.5, 1])
     with col, st.container(border=True):
         st.markdown("#### 🔑 Connect your workspace")
@@ -75,7 +238,7 @@ index: DocumentIndex | None = ss.index
 has_docs = bool(index and index.docs)
 
 with st.sidebar:
-    st.markdown(ui.sidebar_brand(C.VERSION), unsafe_allow_html=True)
+    st.markdown(sidebar_brand(C.VERSION), unsafe_allow_html=True)
 
     with st.expander("🧠 Models"):
         chat_model = st.text_input("Answer model", C.DEFAULT_CHAT_MODEL)
@@ -204,7 +367,7 @@ def restore_library(data: bytes):
 # Header + upload panel
 # ═════════════════════════════════════════════════════════════════════════
 answers = sum(m["role"] == "assistant" for m in ss.history)
-st.markdown(ui.hero([("documents", len(index.docs) if index else 0),
+st.markdown(hero([("documents", len(index.docs) if index else 0),
                      ("passages", f"{len(index) if index else 0:,}"),
                      ("answers", answers)]), unsafe_allow_html=True)
 
@@ -252,7 +415,7 @@ def regenerate():
 
 
 def render_assistant(m: dict, is_last: bool):
-    st.markdown(ui.style_citations(m["content"]))
+    st.markdown(cite_badges(m["content"]))
     tags = []
     if m.get("standalone") and m["standalone"].strip().lower() != m.get("question", "").strip().lower():
         tags.append((f"🔁 searched: {m['standalone'][:90]}", ""))
@@ -446,7 +609,7 @@ with tab_lib:
                     st.caption(f"⚠️ {w}")
                 if doc.get("brief"):
                     with st.expander("✨ Brief", expanded=True):
-                        st.markdown(ui.style_citations(doc["brief"]))
+                        st.markdown(cite_badges(doc["brief"]))
                         st.caption("Sampled from: " + ", ".join(doc.get("brief_sources", [])[:16]))
 
         st.markdown("##### Browse passages")
@@ -506,7 +669,7 @@ with tab_lab:
 # Export & save
 # ═════════════════════════════════════════════════════════════════════════
 def transcript_markdown() -> str:
-    lines = [f"# Document Studio conversation", f"_Exported {datetime.now():%Y-%m-%d %H:%M}_", ""]
+    lines = [f"# {APP_TITLE} conversation", f"_Exported {datetime.now():%Y-%m-%d %H:%M}_", ""]
     for m in ss.history:
         if m["role"] == "user":
             lines += [f"## Q: {m['content']}", ""]
@@ -537,7 +700,7 @@ with tab_export:
         st.caption("Save the processed library (text + embeddings) and restore it later — no re-processing or "
                    "embedding costs.")
         if has_docs:
-            st.download_button("⇩ Save library (.zip)", index.to_bytes(), f"document-studio-library-{stamp}.zip",
+            st.download_button("⇩ Save library (.zip)", index.to_bytes(), f"rag-document-studio-library-{stamp}.zip",
                                "application/zip", width="stretch", type="primary")
             st.download_button("⇩ Passages (JSON)", json.dumps(index.chunks, ensure_ascii=False, indent=1),
                                f"passages-{stamp}.json", "application/json", width="stretch")

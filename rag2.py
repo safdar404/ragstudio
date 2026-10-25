@@ -191,6 +191,8 @@ st.markdown(ui.CSS + THEME_CSS, unsafe_allow_html=True)
 
 from aesthetic_theme import apply_theme
 apply_theme()
+from purple_palette import apply_palette
+apply_palette()
 
 ss = st.session_state
 for key, default in {"history": [], "usage": {}, "index": None, "queued": None, "failed": None,

@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 import uuid
 from datetime import datetime
 
@@ -20,183 +21,29 @@ from studio.config import RetrievalSettings
 from studio.extractors import extract_file
 from studio.index import DocumentIndex, tokenize
 from studio.llm import LLM, error_message
-from studio.pipeline import build_context, citations, retrieve
+from studio.insights import doc_stats, keyword_search, top_terms
+from studio.pipeline import citations, retrieve
+from studio.theme import LOGO_PATH, RAINBOW
 
 APP_TITLE = "RAG Document Studio"
 
-# ═════════════════════════════════════════════════════════════════════════
-# Vibrant AI theme (layered on top of studio.ui.CSS)
-# ═════════════════════════════════════════════════════════════════════════
-THEME_CSS = """
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
-:root{
-  --ink:#140f2e; --muted:#6c6890; --line:#e8e4f8; --surface:rgba(255,255,255,.82); --bg:#f8f6ff;
-  --violet:#7c3aed; --fuchsia:#d946ef; --pink:#ec4899; --cyan:#06b6d4; --indigo:#4f46e5;
-  --accent:var(--violet); --accent-soft:#f1eaff; --accent-ink:#5b21b6;
-  --grad:linear-gradient(120deg,#7c3aed 0%,#c026d3 50%,#06b6d4 100%);
-  --grad-soft:linear-gradient(120deg,rgba(124,58,237,.10),rgba(217,70,239,.08),rgba(6,182,212,.10));
-  --glow:0 10px 30px -10px rgba(124,58,237,.45);
-  --shadow:0 1px 2px rgba(20,15,46,.04),0 8px 28px -12px rgba(76,29,149,.18);
-}
-html,body,.stApp,[class*="css"],button,input,textarea{font-family:"Plus Jakarta Sans",Inter,ui-sans-serif,system-ui,"Segoe UI",sans-serif}
-.stApp{color:var(--ink);
-  background:
-    radial-gradient(900px 500px at 105% -10%,rgba(6,182,212,.13),transparent 60%),
-    radial-gradient(800px 500px at -10% 10%,rgba(124,58,237,.13),transparent 60%),
-    radial-gradient(700px 500px at 50% 110%,rgba(217,70,239,.10),transparent 60%),
-    #f8f6ff;background-attachment:fixed}
-.block-container{max-width:1260px}
-h1,h2,h3,h4,h5{letter-spacing:-.015em}
-
-/* ── Sidebar ── */
-[data-testid="stSidebar"]{background:rgba(255,255,255,.72);backdrop-filter:blur(14px);border-right:1px solid var(--line)}
-[data-testid="stSidebar"] [data-testid="stExpander"]{background:#fff;border:1px solid var(--line);border-radius:14px}
-[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover{color:var(--violet)}
-.side-brand{display:flex;align-items:center;gap:11px;margin:.1rem 0 1.1rem}
-.side-brand .mark{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-size:18px;color:#fff;
-  background:var(--grad);box-shadow:var(--glow)}
-.side-brand b{display:block;font-size:15.5px;font-weight:800;color:var(--ink);line-height:1.15}
-.side-brand b em{font-style:normal;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
-.side-brand span{font-size:10.5px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
-.usage div{background:#fff;border:1px solid var(--line);border-radius:12px;position:relative;overflow:hidden}
-.usage div:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--grad)}
-.usage b{color:var(--accent-ink)}
-
-/* ── Hero ── */
-.rx-hero{position:relative;overflow:hidden;border-radius:24px;padding:30px 34px;margin-bottom:20px;color:#fff;
-  background:#0d0824;box-shadow:0 24px 60px -28px rgba(76,29,149,.7);isolation:isolate;
-  display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap}
-.rx-hero:before{content:"";position:absolute;inset:-40%;z-index:-1;
-  background:
-    radial-gradient(28% 40% at 32% 38%,rgba(124,58,237,.95),transparent 70%),
-    radial-gradient(26% 36% at 68% 36%,rgba(6,182,212,.7),transparent 70%),
-    radial-gradient(30% 34% at 52% 66%,rgba(217,70,239,.75),transparent 70%);
-  filter:blur(36px);animation:rxDrift 18s ease-in-out infinite alternate}
-.rx-hero:after{content:"";position:absolute;inset:0;z-index:-1;opacity:.18;
-  background-image:linear-gradient(rgba(255,255,255,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.12) 1px,transparent 1px);
-  background-size:28px 28px;mask-image:linear-gradient(180deg,#000,transparent 85%)}
-@keyframes rxDrift{0%{transform:translate(0,0) rotate(0)}100%{transform:translate(4%,-3%) rotate(8deg)}}
-.rx-eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.2em;font-weight:700;
-  padding:5px 12px;border-radius:999px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2)}
-.rx-eyebrow i{width:7px;height:7px;border-radius:50%;background:#22d3ee;box-shadow:0 0 10px #22d3ee;animation:rxPulse 2s infinite}
-@keyframes rxPulse{50%{opacity:.35}}
-.rx-hero h1{margin:12px 0 6px;padding:0;font-size:34px;font-weight:800;color:#fff;letter-spacing:-.03em}
-.rx-hero h1 span{background:linear-gradient(90deg,#c4b5fd,#f0abfc 45%,#67e8f9);-webkit-background-clip:text;background-clip:text;color:transparent}
-.rx-hero p{margin:0;color:#d6d0f5;font-size:14.5px;max-width:560px}
-.rx-hero.big{flex-direction:column;align-items:flex-start;padding:48px 44px}
-.rx-hero.big h1{font-size:46px}
-.rx-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
-.rx-chips span{padding:6px 13px;border-radius:999px;font-size:12px;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2)}
-.rx-stats{display:flex;gap:10px;flex-wrap:wrap}
-.rx-stat{min-width:104px;padding:11px 16px;border-radius:16px;background:rgba(255,255,255,.08);
-  border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(8px)}
-.rx-stat b{display:block;font-size:24px;font-weight:800;line-height:1.1;
-  background:linear-gradient(90deg,#fff,#e9d5ff);-webkit-background-clip:text;background-clip:text;color:transparent}
-.rx-stat small{font-size:11px;color:#c9c2ef;letter-spacing:.06em;text-transform:uppercase}
-
-/* ── Tabs: gradient pills (Streamlit ≥1.60 React-Aria markup, plus legacy BaseWeb) ── */
-[data-testid="stTabs"] [role="tablist"],[data-baseweb="tab-list"]{gap:6px;padding:6px;border:1px solid var(--line)!important;
-  border-radius:16px;background:rgba(255,255,255,.75);backdrop-filter:blur(10px);width:fit-content;max-width:100%;
-  box-shadow:var(--shadow);margin-bottom:.6rem}
-[data-testid="stTab"],[data-baseweb="tab"]{padding:8px 16px!important;border-radius:11px!important;font-weight:600;
-  color:var(--muted);transition:all .2s;height:auto!important}
-[data-testid="stTab"]:hover,[data-baseweb="tab"]:hover{color:var(--violet);background:var(--accent-soft)}
-[data-testid="stTab"][aria-selected="true"],[data-baseweb="tab"][aria-selected="true"]{background:var(--grad)!important;box-shadow:var(--glow)}
-[data-testid="stTab"][aria-selected="true"] p,[data-baseweb="tab"][aria-selected="true"] p{color:#fff!important}
-[data-testid="stTab"] > div:not([data-testid]),[data-baseweb="tab-highlight"],[data-baseweb="tab-border"]{display:none!important}
-
-/* ── Cards, chat, inputs ── */
-[data-testid="stExpander"]{background:var(--surface);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow)}
-[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"]){border-color:var(--line)!important;border-radius:18px}
-[data-testid="stChatMessage"]{background:var(--surface);backdrop-filter:blur(10px);border:1px solid var(--line);
-  border-radius:20px;padding:16px 20px;box-shadow:var(--shadow);position:relative;overflow:hidden}
-[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarCustom"]):before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--grad)}
-[data-testid="stChatMessageAvatarCustom"],[data-testid="stChatMessage"] > div:first-child img{border-radius:12px}
-[data-testid="stChatInput"]{border-radius:18px!important;border:1.5px solid transparent!important;
-  background:linear-gradient(#fff,#fff) padding-box,var(--grad) border-box!important;box-shadow:var(--glow)}
-[data-testid="stFileUploaderDropzone"]{background:var(--grad-soft);border:2px dashed #c4b5fd;border-radius:18px}
-[data-testid="stFileUploaderDropzone"]:hover{border-color:var(--fuchsia)}
-.stTextInput input:focus,.stTextArea textarea:focus{border-color:var(--violet)!important;box-shadow:0 0 0 3px rgba(124,58,237,.15)!important}
-
-/* ── Buttons ── */
-.stButton>button,.stDownloadButton>button,.stFormSubmitButton>button{border-radius:12px;font-weight:600;border:1px solid var(--line);transition:all .2s}
-.stButton>button:hover,.stDownloadButton>button:hover{border-color:#c4b5fd;color:var(--violet);transform:translateY(-1px);box-shadow:var(--shadow)}
-button[kind="primary"],button[kind="primaryFormSubmit"]{background:var(--grad)!important;background-size:160% 100%!important;
-  border:0!important;color:#fff!important;box-shadow:var(--glow)}
-button[kind="primary"]:hover,button[kind="primaryFormSubmit"]:hover{background-position:100% 0!important;color:#fff!important;transform:translateY(-1px)}
-button[kind="tertiary"]{color:var(--violet)!important}
-
-/* ── Accent recolouring of built-in widgets (config.toml primary colour is teal) ── */
-[data-testid="stSlider"] [role="group"] > div > div:first-child{filter:hue-rotate(88deg) saturate(1.35)}
-[data-testid="stSlider"] [role="group"] > div > div[data-rac]{background-color:var(--violet)!important;
-  box-shadow:0 0 0 4px rgba(124,58,237,.18),0 0 12px rgba(217,70,239,.5)!important}
-[data-testid="stSliderThumbValue"] p{color:var(--violet)!important;font-weight:700}
-[data-testid="stCheckbox"] label[data-selected="true"] > div:first-of-type{background:var(--grad)!important}
-[data-testid="stRadioOption"][data-selected="true"] > div > div:first-child{background-color:var(--violet)!important;
-  border-color:var(--violet)!important;box-shadow:0 0 0 3px rgba(124,58,237,.18)}
-[data-baseweb="slider"] [role="slider"]{background:var(--violet)!important}
-[data-baseweb="tag"]{background:var(--accent-soft)!important;color:var(--accent-ink)!important}
-[data-baseweb="tag"] span{color:var(--accent-ink)!important}
-
-/* ── Pills, empty states, source cards ── */
-.pill{background:#fff;border-color:var(--line)}
-.pill.ok{background:var(--accent-soft);border-color:#ddd0ff;color:var(--accent-ink)}
-.pill.kind{background:var(--grad);color:#fff;border:0}
-.empty{background:var(--surface);border:2px dashed #d8ccfb;border-radius:22px}
-.empty .icon{display:inline-grid;place-items:center;width:64px;height:64px;border-radius:20px;background:var(--grad);box-shadow:var(--glow);font-size:30px}
-.empty h3{margin-top:.8rem}
-.src{border-radius:14px;background:#fff;transition:box-shadow .2s}
-.src:hover{box-shadow:var(--shadow)}
-.src.cited{border-left:0;background:linear-gradient(#fff,#fff) padding-box,var(--grad) border-box;border:1.5px solid transparent}
-.src-id{background:var(--ink)}
-.src.cited .src-id{background:var(--grad)}
-.src-tag{background:var(--accent-soft);color:var(--accent-ink)}
-.bar i{background:var(--grad)}
-mark{background:linear-gradient(90deg,#f5d0fe,#ddd6fe);color:#3b0764}
-[data-testid="stCode"],[data-testid="stDataFrame"]{border-radius:14px;overflow:hidden}
-::selection{background:#e9d5ff}
-[data-testid="stMarkdownContainer"] code{color:var(--accent-ink);background:var(--accent-soft);border-radius:6px;padding:1px 6px}
-@media(max-width:700px){.rx-hero{padding:22px}.rx-hero h1{font-size:26px}.rx-hero.big{padding:28px 22px}.rx-hero.big h1{font-size:32px}}
-</style>
-"""
-
-
-def hero(stats: list[tuple[str, str]] | None = None, big: bool = False) -> str:
-    stats_html = "".join(f'<div class="rx-stat"><b>{ui.esc(v)}</b><small>{ui.esc(k)}</small></div>'
-                         for k, v in stats or [])
-    chips = ('<div class="rx-chips"><span>📄 PDF + scans</span><span>📝 Word</span><span>🖼️ Images</span>'
-             '<span>📊 CSV · TXT · MD</span><span>⚡ Hybrid search</span><span>📌 Cited answers</span></div>'
-             if big else "")
-    stats_block = f'<div class="rx-stats">{stats_html}</div>' if stats_html else ""
-    return (f'<div class="rx-hero{" big" if big else ""}"><div>'
-            f'<div class="rx-eyebrow"><i></i>AI DOCUMENT INTELLIGENCE</div>'
-            f'<h1>✦ <span>RAG Document Studio</span></h1>'
-            f'<p>Chat with your documents, get grounded answers, and inspect every source behind them.</p>'
-            f'{chips}</div>{stats_block}</div>')
-
-
-def sidebar_brand(version: str) -> str:
-    return (f'<div class="side-brand"><div class="mark">✦</div><div><b><em>RAG</em> Document Studio</b>'
-            f'<span>AI workspace · v{ui.esc(version)}</span></div></div>')
+APP_ICON = str(LOGO_PATH) if LOGO_PATH.exists() else "🤖"
+AGENT_AVATAR = APP_ICON
+USER_AVATAR = "🧑‍💻"
 
 
 def cite_badges(answer: str) -> str:
     """[S1] / [S1, S3] → violet Streamlit badges (no raw HTML from model output)."""
-    return ui.style_citations(answer).replace(":green-badge[", ":violet-badge[")
+    return ui.style_citations(answer)
 
-st.set_page_config(page_title="RAG Document Studio", page_icon="✦", layout="wide",
+
+st.set_page_config(page_title=APP_TITLE, page_icon=APP_ICON, layout="wide",
                    initial_sidebar_state="expanded")
-st.markdown(ui.CSS + THEME_CSS, unsafe_allow_html=True)
-
-from aesthetic_theme import apply_theme
-apply_theme()
-from purple_palette import apply_palette
-apply_palette()
+st.markdown(ui.CSS, unsafe_allow_html=True)
 
 ss = st.session_state
 for key, default in {"history": [], "usage": {}, "index": None, "queued": None, "failed": None,
-                     "lab": None, "nonce": 0, "report": None}.items():
+                     "lab": None, "nonce": 0, "report": None, "finder": None}.items():
     ss.setdefault(key, default)
 
 
@@ -204,16 +51,21 @@ for key, default in {"history": [], "usage": {}, "index": None, "queued": None, 
 # Connect
 # ═════════════════════════════════════════════════════════════════════════
 def connect_screen():
-    st.markdown(hero(big=True), unsafe_allow_html=True)
-    _, col, _ = st.columns([1, 1.5, 1])
-    with col, st.container(border=True):
-        st.markdown("#### 🔑 Connect your workspace")
+    st.markdown(ui.hero(big=True), unsafe_allow_html=True)
+    _, col, _ = st.columns([1, 1.6, 1])
+    with col, st.container(key="connect_card"):
+        st.markdown("#### 🔑 Connect your AI agent")
         env_key = os.environ.get("OPENAI_API_KEY", "")
+        if not env_key:
+            try:
+                env_key = st.secrets.get("OPENAI_API_KEY", "")
+            except (FileNotFoundError, KeyError):
+                pass
         with st.form("connect"):
             key = st.text_input("OpenAI API key", type="password", placeholder="sk-…")
             base = st.text_input("API base URL (optional)", placeholder="https://api.openai.com/v1",
                                  help="For OpenAI-compatible servers such as Azure gateways, LiteLLM, vLLM or Ollama.")
-            go = st.form_submit_button("Open workspace →", type="primary", width="stretch")
+            go = st.form_submit_button("🚀 Launch workspace", type="primary", width="stretch")
         if go:
             chosen = key.strip() or env_key
             if chosen:
@@ -221,9 +73,13 @@ def connect_screen():
                 st.rerun()
             st.warning("Please enter an API key.")
         if env_key:
-            st.caption("✓ `OPENAI_API_KEY` found in the environment — leave the key field empty to use it.")
-        st.caption("Your key stays in this browser session only. Document text, images and questions are sent "
+            st.caption("✓ `OPENAI_API_KEY` configured — leave the key field empty to use it.")
+        st.caption("🔒 Your key is held in server memory for this session. Document text, images and questions are sent "
                    "to the API when processed; usage may incur charges.")
+    f1, f2, f3 = st.columns(3)
+    f1.markdown("##### 📥 1 · Upload\nPDFs, Word, images, CSV, TXT or Markdown — scans are read by the vision model.")
+    f2.markdown("##### 🤖 2 · Ask the agent\nHybrid search finds the right passages; answers cite every source.")
+    f3.markdown("##### 📊 3 · Explore\nInsights, keyword finder, pinned notes, retrieval lab and exports.")
     st.stop()
 
 
@@ -232,8 +88,8 @@ if not ss.get("api_key"):
 
 
 def logout():
-    for k in ("api_key", "base_url"):
-        ss.pop(k, None)
+    # Remove documents, answers, credentials and pending requests together.
+    ss.clear()
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -243,7 +99,12 @@ index: DocumentIndex | None = ss.index
 has_docs = bool(index and index.docs)
 
 with st.sidebar:
-    st.markdown(sidebar_brand(C.VERSION), unsafe_allow_html=True)
+    st.markdown(ui.sidebar_brand(C.VERSION), unsafe_allow_html=True)
+
+    with st.expander("🤖 Agent", expanded=True):
+        persona = st.selectbox("Persona", list(C.PERSONAS), help="How the agent frames its answers.")
+        language = st.selectbox("Answer language", C.ANSWER_LANGUAGES)
+        style = st.selectbox("Answer style", list(C.ANSWER_STYLES))
 
     with st.expander("🧠 Models"):
         chat_model = st.text_input("Answer model", C.DEFAULT_CHAT_MODEL)
@@ -252,8 +113,8 @@ with st.sidebar:
             "Embedding model", index.embed_model if has_docs else C.DEFAULT_EMBED_MODEL,
             disabled=has_docs, help="Locked while the library has documents: all vectors must come from one model.")
 
-    with st.expander("🔎 Retrieval", expanded=True):
-        mode = st.radio("Search mode", C.RETRIEVAL_MODES, horizontal=True,
+    with st.expander("🔎 Retrieval"):
+        mode = st.segmented_control("Search mode", C.RETRIEVAL_MODES, default="Hybrid",
                         help="Hybrid combines meaning-based (semantic) and exact-word (BM25 keyword) search.")
         top_k = st.slider("Passages per answer", 2, 15, 6)
         candidates = st.slider("Candidate pool", 10, 80, 30, step=5,
@@ -266,8 +127,7 @@ with st.sidebar:
         min_sim = st.slider("Minimum semantic similarity", 0.0, 0.6, 0.0, 0.05,
                             help="Drop weak matches. 0 keeps everything.")
 
-    with st.expander("✨ Answering", expanded=True):
-        style = st.selectbox("Answer style", list(C.ANSWER_STYLES))
+    with st.expander("✨ Smart features"):
         rewrite = st.toggle("Understand follow-up questions", True,
                             help="Rewrites questions like “what about the second one?” using the chat history.")
         multi_query = st.toggle("Multi-query search", False,
@@ -278,16 +138,17 @@ with st.sidebar:
     u = ss.usage
     st.markdown(
         '<div class="usage">'
-        f'<div><small>Prompt tokens</small><b>{u.get("prompt", 0):,}</b></div>'
-        f'<div><small>Output tokens</small><b>{u.get("completion", 0):,}</b></div>'
-        f'<div><small>Embedding tokens</small><b>{u.get("embedding", 0):,}</b></div>'
-        f'<div><small>API calls</small><b>{u.get("calls", 0):,}</b></div></div>', unsafe_allow_html=True)
+        f'<div><small>📤 Prompt</small><b>{u.get("prompt", 0):,}</b></div>'
+        f'<div><small>📥 Output</small><b>{u.get("completion", 0):,}</b></div>'
+        f'<div><small>🧮 Embedding</small><b>{u.get("embedding", 0):,}</b></div>'
+        f'<div><small>⚡ API calls</small><b>{u.get("calls", 0):,}</b></div></div>', unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     if c1.button("🧹 Clear chat", width="stretch", disabled=not ss.history):
         ss.history, ss.failed = [], None
         st.rerun()
     c2.button("🔑 Change key", width="stretch", on_click=logout)
-    st.caption("Session-only workspace. Save your library from the Export tab to reuse it later.")
+    st.caption("💾 Session-only workspace. Save your library from the Export tab to reuse it later.")
+    mode = mode or "Hybrid"   # segmented control can be deselected
 
 
 def get_llm() -> LLM:
@@ -301,6 +162,15 @@ def settings(files=()) -> RetrievalSettings:
     return RetrievalSettings(mode=mode, top_k=top_k, candidates=candidates, use_mmr=use_mmr,
                              mmr_lambda=mmr_lambda, neighbors=neighbors, min_similarity=min_sim,
                              rewrite=rewrite, multi_query=multi_query, rerank=rerank, files=tuple(files))
+
+
+def style_instruction() -> str:
+    """Answer style + agent persona + output language, as one instruction for the answer model."""
+    parts = [C.ANSWER_STYLES[style], C.PERSONAS.get(persona, "")]
+    lang = language.split(" ", 1)[1] if " " in language else language
+    parts.append("Reply in the same language as the question." if language == C.ANSWER_LANGUAGES[0]
+                 else f"Write the whole answer in {lang}, keeping citation tags like [S1] unchanged.")
+    return " ".join(p for p in parts if p)
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -372,9 +242,10 @@ def restore_library(data: bytes):
 # Header + upload panel
 # ═════════════════════════════════════════════════════════════════════════
 answers = sum(m["role"] == "assistant" for m in ss.history)
-st.markdown(hero([("documents", len(index.docs) if index else 0),
-                     ("passages", f"{len(index) if index else 0:,}"),
-                     ("answers", answers)]), unsafe_allow_html=True)
+pinned = sum(bool(m.get("pinned")) for m in ss.history)
+st.markdown(ui.hero([("📄 docs", len(index.docs) if index else 0),
+                     ("🧩 passages", f"{len(index) if index else 0:,}"),
+                     ("💬 answers", answers), ("📌 pinned", pinned)]), unsafe_allow_html=True)
 
 with st.expander("📂 Add documents", expanded=not has_docs):
     uploads = st.file_uploader("Drop files here", type=C.SUPPORTED_TYPES, accept_multiple_files=True,
@@ -388,7 +259,7 @@ with st.expander("📂 Add documents", expanded=not has_docs):
             st.error(f"Add at most {C.MAX_FILES_PER_BATCH} files at a time.")
         else:
             ingest(uploads, ocr)
-    st.caption(f"PDF · Word (.docx) · PNG/JPG/WebP · TXT · Markdown · CSV — up to {C.MAX_FILE_MB} MB each. "
+    st.caption(f"📄 PDF · 📝 Word (.docx) · 🖼️ PNG/JPG/WebP · 📃 TXT · 📑 Markdown · 📊 CSV — up to {C.MAX_FILE_MB} MB each. "
                "Files already in the library are skipped automatically.")
 
 if ss.report:
@@ -403,7 +274,8 @@ if ss.report:
 
 index = ss.index
 has_docs = bool(index and index.docs)
-tab_chat, tab_lib, tab_lab, tab_export = st.tabs(["💬 Chat", "📚 Library", "🔬 Retrieval lab", "⇩ Export & save"])
+tab_chat, tab_lib, tab_ins, tab_notes, tab_lab, tab_export = st.tabs(
+    ["💬 Chat", "📚 Library", "📊 Insights", f"📌 Notebook ({pinned})", "🔬 Retrieval lab", "💾 Export"])
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -419,22 +291,41 @@ def regenerate():
         ss.queued = ss.history.pop()["content"]
 
 
+def toggle_pin(m: dict):
+    m["pinned"] = not m.get("pinned")
+
+
+def answer_markdown(m: dict) -> str:
+    lines = [f"## {m.get('question', '')}", "", m["content"], ""]
+    if m.get("sources"):
+        lines.append("**Sources**")
+        lines += [f"- [S{i}]{' ✓' if i in m.get('cited', []) else ''} {s['file']} · {s['location']}"
+                  for i, s in enumerate(m["sources"], 1)]
+    return "\n".join(lines) + "\n"
+
+
 def render_assistant(m: dict, is_last: bool):
     st.markdown(cite_badges(m["content"]))
     tags = []
     if m.get("standalone") and m["standalone"].strip().lower() != m.get("question", "").strip().lower():
         tags.append((f"🔁 searched: {m['standalone'][:90]}", ""))
     if len(m.get("queries", [])) > 1:
-        tags.append((f"+{len(m['queries']) - 1} query variants", ""))
+        tags.append((f"🧬 +{len(m['queries']) - 1} query variants", ""))
     n_sources, n_cited = len(m.get("sources", [])), len(m.get("cited", []))
     if n_sources:
         tags.append((f"📌 {n_cited}/{n_sources} sources cited", "ok" if n_cited else "warn"))
     if m.get("invalid"):
-        tags.append((f"⚠ unknown citation(s): {', '.join('S' + str(i) for i in m['invalid'])}", "warn"))
+        tags.append((f"⚠️ unknown citation(s): {', '.join('S' + str(i) for i in m['invalid'])}", "warn"))
     if n_sources and not n_cited:
-        tags.append(("no citations — verify against sources", "warn"))
+        tags.append(("🧐 no citations — verify against sources", "warn"))
+    if m.get("seconds") is not None:
+        tags.append((f"⏱️ {m['seconds']:.1f}s", "info"))
+    if m.get("tokens"):
+        tags.append((f"🪙 {m['tokens']:,} tokens", "info"))
+    if m.get("settings", {}).get("persona"):
+        tags.append((m["settings"]["persona"], ""))
     for note in m.get("notes", []):
-        tags.append((note, "warn"))
+        tags.append((f"⚠️ {note}", "warn"))
     if tags:
         st.markdown(ui.pills(tags), unsafe_allow_html=True)
     if m.get("sources"):
@@ -447,32 +338,40 @@ def render_assistant(m: dict, is_last: bool):
                 if only_cited and i not in cited:
                     continue
                 st.markdown(ui.source_card(i, s, i in cited, max_fused, terms), unsafe_allow_html=True)
-    cols = st.columns([1, 1, 6], vertical_alignment="center")
-    with cols[0]:
+    with st.container(horizontal=True, vertical_alignment="center", gap="small"):
         rating = st.feedback("thumbs", key=f"fb_{m['id']}")
         m["rating"] = {0: "down", 1: "up"}.get(rating)
-    if is_last:
-        cols[1].button("🔁 Regenerate", key=f"rg_{m['id']}", on_click=regenerate, type="tertiary")
+        st.button("📍 Unpin" if m.get("pinned") else "📌 Pin", key=f"pin_{m['id']}", on_click=toggle_pin,
+                  args=(m,), type="tertiary", help="Save this answer to your Notebook tab")
+        with st.popover("📋 Copy", type="tertiary"):
+            st.caption("Use the copy icon in the top-right corner of the box.")
+            st.code(m["content"], language="markdown", wrap_lines=True)
+        st.download_button("⬇️ Save", answer_markdown(m), f"answer-{m['id'][:6]}.md", "text/markdown",
+                           key=f"dl_{m['id']}", type="tertiary")
+        if is_last:
+            st.button("🔁 Regenerate", key=f"rg_{m['id']}", on_click=regenerate, type="tertiary")
 
 
 def answer(question: str, files, live):
     llm = get_llm()
     history = list(ss.history)
     cfg = settings(files)
+    started, before = time.perf_counter(), ss.usage.get("prompt", 0) + ss.usage.get("completion", 0)
     with live:
-        with st.chat_message("user", avatar=":material/person:"):
+        with st.chat_message("user", avatar=USER_AVATAR):
             st.markdown(question)
-        with st.chat_message("assistant", avatar=":material/auto_awesome:"):
+        with st.chat_message("assistant", avatar=AGENT_AVATAR):
             try:
-                with st.status("Searching your documents…", expanded=False) as status:
+                with st.status("🤖 Agent is searching your documents…", expanded=False) as status:
                     result = retrieve(llm, index, question, history, cfg, log=status.write)
-                    status.update(label=f"Found {len(result.hits)} relevant passages", state="complete")
+                    status.update(label=f"✅ Found {len(result.hits)} relevant passages", state="complete")
                 if not result.hits:
-                    text = ("I couldn't find any passages related to this question in the selected documents. "
+                    text = ("🤷 I couldn't find any passages related to this question in the selected documents. "
                             "Try rephrasing, widening the search scope, or lowering the minimum similarity.")
                     st.markdown(text)
                 else:
-                    text = st.write_stream(llm.stream_answer(question, result.context, history, style))
+                    text = st.write_stream(llm.stream_answer(question, result.context, history,
+                                                             style_instruction()))
                     if not isinstance(text, str):
                         text = "".join(str(t) for t in text)
                     if not text.strip():
@@ -484,58 +383,66 @@ def answer(question: str, files, live):
                     except Exception:  # noqa: BLE001 — optional extra
                         pass
             except Exception as e:  # noqa: BLE001
-                st.error(error_message(e))
+                st.error(f"⚠️ {error_message(e)}")
                 ss.failed = question
                 return
     sources = [h.as_source() for h in result.hits]
     valid, invalid = citations(text, len(sources))
-    ss.history.append({"id": uuid.uuid4().hex, "role": "user", "content": question,
-                       "time": datetime.now().isoformat(timespec="seconds")})
+    now = datetime.now().isoformat(timespec="seconds")
+    ss.history.append({"id": uuid.uuid4().hex, "role": "user", "content": question, "time": now})
     ss.history.append({"id": uuid.uuid4().hex, "role": "assistant", "content": text, "question": question,
                        "standalone": result.standalone, "queries": result.queries, "sources": sources,
                        "cited": valid, "invalid": invalid, "followups": followups, "notes": result.notes,
+                       "seconds": round(time.perf_counter() - started, 2),
+                       "tokens": ss.usage.get("prompt", 0) + ss.usage.get("completion", 0) - before,
                        "settings": {"mode": cfg.mode, "top_k": cfg.top_k, "mmr": cfg.use_mmr,
                                     "rerank": cfg.rerank, "multi_query": cfg.multi_query, "style": style,
-                                    "model": llm.chat_model},
-                       "time": datetime.now().isoformat(timespec="seconds"), "rating": None})
+                                    "persona": persona, "language": language, "model": llm.chat_model},
+                       "time": now, "rating": None, "pinned": False})
     ss.failed = None
     st.rerun()
 
 
 with tab_chat:
     if not has_docs:
-        st.markdown(ui.empty_state("📂", "Your library is empty",
-                                   "Add documents above, then ask questions. Answers cite the exact passages used."),
+        st.markdown(ui.empty_state("🤖", "Your AI agent is ready — feed it some documents",
+                                   "Add files above ⬆️ then ask anything. Every answer cites the exact passages used."),
                     unsafe_allow_html=True)
     else:
         names = {d["id"]: d["name"] for d in index.docs.values()}
-        scope = st.multiselect("Search in", list(names), format_func=lambda i: names.get(i, i),
+        scope = st.multiselect("🎯 Search in", list(names), format_func=lambda i: names.get(i, i),
                                placeholder="All documents", key="scope")
         scope = [s for s in scope if s in names]
 
         for i, m in enumerate(ss.history):
             if m["role"] == "user":
-                with st.chat_message("user", avatar=":material/person:"):
+                with st.chat_message("user", avatar=USER_AVATAR):
                     st.markdown(m["content"])
             else:
-                with st.chat_message("assistant", avatar=":material/auto_awesome:"):
+                with st.chat_message("assistant", avatar=AGENT_AVATAR):
                     render_assistant(m, is_last=i == len(ss.history) - 1)
 
         live = st.container()
 
         if ss.failed:
             c1, c2 = st.columns([4, 1], vertical_alignment="center")
-            c1.warning(f"Last question failed: “{ss.failed[:120]}”")
+            c1.warning(f"Last question failed: “{ss.failed[:120]}”", icon="⚠️")
             c2.button("🔄 Retry", on_click=queue, args=(ss.failed,), width="stretch")
 
-        suggestions = (ss.history[-1].get("followups") if ss.history else C.STARTER_QUESTIONS) or []
-        if suggestions:
-            st.caption("Suggested next questions" if ss.history else "Try asking")
-            cols = st.columns(min(len(suggestions), 4))
-            for col, q in zip(cols, suggestions):
-                col.button(q, key=f"sg_{hash(q)}_{len(ss.history)}", on_click=queue, args=(q,), width="stretch")
+        followups = ss.history[-1].get("followups") if ss.history else []
+        if followups:
+            st.caption("💡 Suggested next questions")
+            with st.container(horizontal=True, gap="small"):
+                for n, q in enumerate(followups):
+                    st.button(q, key=f"sg_{n}_{len(ss.history)}", on_click=queue, args=(q,))
+        st.caption("⚡ Agent quick actions")
+        with st.container(horizontal=True, gap="small"):
+            for n, (label, prompt_text) in enumerate(C.QUICK_ACTIONS):
+                if label.endswith("Compare") and len(scope or names) < 2:
+                    continue
+                st.button(label, key=f"qa_{n}", on_click=queue, args=(prompt_text,), help=prompt_text)
 
-        prompt = st.chat_input("Ask about your documents…")
+        prompt = st.chat_input("Ask your AI agent about your documents… ✨")
         question = (prompt or "").strip() or ss.queued
         ss.queued = None
         if question:
@@ -549,13 +456,13 @@ def remove_doc(doc_id: str):
     ss.index.remove(doc_id)
     if not ss.index.docs:
         ss.index = None
-    ss.lab = None
+    ss.lab, ss.finder = None, None
     if "scope" in ss:
         ss.scope = [d for d in ss.scope if d != doc_id]
 
 
 def clear_library():
-    ss.index, ss.lab = None, None
+    ss.index, ss.lab, ss.finder = None, None, None
     if "scope" in ss:
         ss.scope = []
 
@@ -582,33 +489,34 @@ with tab_lib:
         head_l, head_r = st.columns([4, 1], vertical_alignment="center")
         head_l.markdown(f"**{len(index.docs)} documents · {len(index):,} passages** · "
                         f"embeddings: `{index.embed_model}`")
-        head_r.button("🗑 Clear library", on_click=clear_library, width="stretch")
+        head_r.button("🗑️ Clear library", on_click=clear_library, width="stretch")
 
         for doc in list(index.docs.values()):
-            with st.container(border=True):
+            with st.container(key=f"doc_{doc['id']}"):
                 left, right = st.columns([5, 2], vertical_alignment="center")
                 with left:
                     st.markdown(f"**{ui.KIND_ICON.get(doc['kind'], '📄')} {doc['name']}**")
-                    info = [(doc["kind"], "kind"), (fmt_size(doc["size"]), ""),
-                            (f"{doc['passages']} passages", "")]
+                    info = [(doc["kind"], "kind"), (f"💾 {fmt_size(doc['size'])}", ""),
+                            (f"🧩 {doc['passages']} passages", "")]
                     if doc.get("pages"):
-                        info.append((f"{doc['pages']} pages", ""))
+                        info.append((f"📃 {doc['pages']} pages", ""))
                     if doc.get("ocr_pages"):
-                        info.append((f"{doc['ocr_pages']} OCR pages", "warn"))
+                        info.append((f"👁️ {doc['ocr_pages']} OCR pages", "warn"))
                     if doc.get("title"):
-                        info.append((f"“{doc['title'][:50]}”", ""))
-                    info.append((f"added {doc['added']}", ""))
+                        info.append((f"🏷️ “{doc['title'][:50]}”", ""))
+                    info.append((f"🕒 added {doc['added']}", ""))
                     st.markdown(ui.pills(info), unsafe_allow_html=True)
                 with right:
                     b1, b2 = st.columns(2)
-                    if b1.button("✨ Brief", key=f"br_{doc['id']}", width="stretch",
+                    if b1.button("🔄 Re-brief" if doc.get("brief") else "✨ Brief", key=f"br_{doc['id']}", width="stretch",
                                  help="Generate an AI overview of this document"):
-                        with st.spinner("Writing brief…"):
+                        with st.spinner("🤖 Writing brief…"):
                             try:
                                 make_brief(doc["id"])
+                                st.rerun()
                             except Exception as e:  # noqa: BLE001
-                                st.error(error_message(e))
-                    b2.button("Remove", key=f"rm_{doc['id']}", on_click=remove_doc, args=(doc["id"],),
+                                st.error(f"⚠️ {error_message(e)}")
+                    b2.button("🗑️ Remove", key=f"rm_{doc['id']}", on_click=remove_doc, args=(doc["id"],),
                               width="stretch")
                 for w in doc.get("warnings", []):
                     st.caption(f"⚠️ {w}")
@@ -617,11 +525,11 @@ with tab_lib:
                         st.markdown(cite_badges(doc["brief"]))
                         st.caption("Sampled from: " + ", ".join(doc.get("brief_sources", [])[:16]))
 
-        st.markdown("##### Browse passages")
+        st.markdown(ui.section_title("🔍 Browse passages"), unsafe_allow_html=True)
         names = {d["id"]: d["name"] for d in index.docs.values()}
         c1, c2 = st.columns([2, 3])
         pick = c1.selectbox("Document", list(names), format_func=names.get)
-        needle = c2.text_input("Filter text", placeholder="Find a word or phrase…")
+        needle = c2.text_input("Filter text", placeholder="🔎 Find a word or phrase…")
         rows = [{"#": c["seq"] + 1, "Location": c["location"], "Passage": c["text"]}
                 for c in index.doc_chunks(pick) if not needle or needle.lower() in c["text"].lower()]
         st.dataframe(rows, hide_index=True, width="stretch", height=360,
@@ -632,20 +540,115 @@ with tab_lib:
 
 
 # ═════════════════════════════════════════════════════════════════════════
+# Insights (offline analytics — no API calls)
+# ═════════════════════════════════════════════════════════════════════════
+def words_chart(rows: list[dict]):
+    import altair as alt
+    data = [{"Document": r["name"][:32], "Words": r["words"]} for r in rows]
+    palette = [RAINBOW[i % len(RAINBOW)] for i in range(len(data))]
+    return (alt.Chart(alt.Data(values=data)).mark_bar(cornerRadiusEnd=6, height={"band": 0.7})
+            .encode(x=alt.X("Words:Q", title="words"), y=alt.Y("Document:N", sort="-x", title=None, axis=alt.Axis(labelOverlap=False, labelLimit=180)),
+                    color=alt.Color("Document:N", scale=alt.Scale(range=palette), legend=None),
+                    tooltip=["Document:N", "Words:Q"])
+            .properties(height=max(140, 40 * len(data))).configure_view(stroke=None)
+            .configure_axis(labelColor="#d9d4ff", titleColor="#a9a3d9", gridColor="#2f2a66", domainColor="#433c8a"))
+
+
+def run_finder():
+    q = (ss.get("finder_q") or "").strip()
+    ss.finder = {"query": q, "sources": [h.as_source() for h in keyword_search(ss.index, q, n=12)]} if q else None
+
+
+with tab_ins:
+    if not has_docs:
+        st.markdown(ui.empty_state("📊", "No insights yet", "Add documents to see stats, top keywords and search."),
+                    unsafe_allow_html=True)
+    else:
+        rows = doc_stats(index)
+        total_words = sum(r["words"] for r in rows)
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("📄 Documents", len(rows))
+        m2.metric("🧩 Passages", f"{len(index):,}")
+        m3.metric("📝 Words", f"{total_words:,}")
+        m4.metric("📏 Words / passage", round(total_words / max(1, len(index))))
+        m5.metric("💬 Answers", answers)
+
+        left, right = st.columns([3, 2])
+        with left:
+            st.markdown(ui.section_title("📈 Words per document"), unsafe_allow_html=True)
+            st.altair_chart(words_chart(rows), width="stretch")
+        with right:
+            st.markdown(ui.section_title("🗂️ File types"), unsafe_allow_html=True)
+            kinds: dict[str, int] = {}
+            for r in rows:
+                kinds[r["kind"]] = kinds.get(r["kind"], 0) + 1
+            st.markdown(ui.pills([(f"{ui.KIND_ICON.get(k, '📄')} {k} × {n}", "kind") for k, n in kinds.items()]),
+                        unsafe_allow_html=True)
+            st.markdown(ui.section_title("🔥 Top keywords · whole library"), unsafe_allow_html=True)
+            st.markdown(ui.keyword_chips(top_terms(index, None, 14)), unsafe_allow_html=True)
+
+        st.markdown(ui.section_title("🏷️ Keywords per document"), unsafe_allow_html=True)
+        for r in rows:
+            st.markdown(f"**{ui.KIND_ICON.get(r['kind'], '📄')} {ui.esc(r['name'])}** "
+                        f"<span style='color:var(--muted);font-size:12px'>· {r['words']:,} words · "
+                        f"{r['passages']} passages</span>" + ui.keyword_chips(top_terms(index, r["id"], 10)),
+                        unsafe_allow_html=True)
+
+        st.markdown(ui.section_title("🔎 Instant keyword finder (free · no API call)"), unsafe_allow_html=True)
+        st.text_input("Find passages containing…", key="finder_q", on_change=run_finder,
+                      placeholder="e.g. deadline, budget, termination — press Enter")
+        if ss.finder:
+            found = ss.finder["sources"]
+            st.caption(f"{len(found)} match(es) for “{ss.finder['query']}” across all documents")
+            top = max((s["fused"] for s in found), default=1) or 1
+            for i, s in enumerate(found, 1):
+                st.markdown(ui.source_card(i, s, False, top, tokenize(ss.finder["query"])), unsafe_allow_html=True)
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Notebook (pinned answers)
+# ═════════════════════════════════════════════════════════════════════════
+def notebook_markdown() -> str:
+    notes = [m for m in ss.history if m.get("pinned")]
+    return (f"# 📌 {APP_TITLE} notebook\n_Exported {datetime.now():%Y-%m-%d %H:%M}_\n\n"
+            + "\n---\n\n".join(answer_markdown(m) for m in notes))
+
+
+with tab_notes:
+    notes = [m for m in ss.history if m.get("pinned")]
+    if not notes:
+        st.markdown(ui.empty_state("📌", "Your notebook is empty",
+                                   "Press “📌 Pin” under any answer to collect it here for later."),
+                    unsafe_allow_html=True)
+    else:
+        h1, h2 = st.columns([4, 1], vertical_alignment="center")
+        h1.markdown(f"**{len(notes)} pinned answer(s)** — your personal research notebook ✍️")
+        h2.download_button("⬇️ Download notes", notebook_markdown(), f"notebook-{datetime.now():%Y%m%d-%H%M}.md",
+                           "text/markdown", width="stretch", type="primary")
+        for m in notes:
+            with st.expander(f"❓ {m.get('question', '')[:110]}", expanded=len(notes) <= 3):
+                st.markdown(cite_badges(m["content"]))
+                if m.get("sources"):
+                    st.caption("📚 " + " · ".join(f"S{i} {s['file']}" for i, s in enumerate(m["sources"], 1)
+                                                if i in m.get("cited", [])))
+                st.button("📍 Unpin", key=f"unpin_{m['id']}", on_click=toggle_pin, args=(m,), type="tertiary")
+
+
+# ═════════════════════════════════════════════════════════════════════════
 # Retrieval lab
 # ═════════════════════════════════════════════════════════════════════════
 with tab_lab:
-    st.markdown("Test what the retriever finds for a query **without** generating an answer. "
+    st.markdown("🧪 Test what the retriever finds for a query **without** generating an answer. "
                 "Useful for tuning the sidebar settings.")
     if not has_docs:
-        st.info("Add documents first.")
+        st.info("Add documents first.", icon="📂")
     else:
         with st.form("lab_form"):
             lab_q = st.text_input("Test query", placeholder="e.g. termination clause notice period")
-            run = st.form_submit_button("Run retrieval", type="primary")
+            run = st.form_submit_button("🔬 Run retrieval", type="primary")
         if run and lab_q.strip():
             try:
-                with st.spinner("Retrieving…"):
+                with st.spinner("🔎 Retrieving…"):
                     cfg = settings([d for d in ss.get("scope", []) if d in index.docs])
                     res = retrieve(get_llm(), index, lab_q.strip(), [], cfg)
                 ss.lab = {"query": lab_q.strip(), "queries": res.queries,
@@ -655,7 +658,7 @@ with tab_lab:
                 st.error(error_message(e))
         if ss.lab:
             lab = ss.lab
-            st.markdown(ui.pills([(f"mode: {lab['mode']}", "kind"), (f"{len(lab['sources'])} results", "ok")]
+            st.markdown(ui.pills([(f"⚙️ mode: {lab['mode']}", "kind"), (f"🎯 {len(lab['sources'])} results", "ok")]
                                  + [(f"variant: {q}", "") for q in lab["queries"][1:]]
                                  + [(n, "warn") for n in lab["notes"]]), unsafe_allow_html=True)
             st.dataframe([{"Rank": i, "Document": s["file"], "Location": s["location"],
@@ -666,7 +669,7 @@ with tab_lab:
                          column_config={"Semantic": st.column_config.ProgressColumn(min_value=0, max_value=1,
                                                                                     format="%.3f"),
                                         "Fused (RRF)": st.column_config.NumberColumn(format="%.4f")})
-            with st.expander("Context exactly as sent to the answer model"):
+            with st.expander("📜 Context exactly as sent to the answer model"):
                 st.code(lab["context"] or "(empty)", language=None, wrap_lines=True)
 
 
@@ -695,9 +698,9 @@ with tab_export:
     with c1, st.container(border=True):
         st.markdown("**💬 Conversation**")
         st.caption("Questions, answers, cited sources and your ratings.")
-        st.download_button("⇩ Markdown transcript", transcript_markdown(), f"conversation-{stamp}.md",
+        st.download_button("📝 Markdown transcript", transcript_markdown(), f"conversation-{stamp}.md",
                            "text/markdown", width="stretch", disabled=not ss.history)
-        st.download_button("⇩ Full JSON (with evidence)", json.dumps(ss.history, ensure_ascii=False, indent=2),
+        st.download_button("🧾 Full JSON (with evidence)", json.dumps(ss.history, ensure_ascii=False, indent=2),
                            f"conversation-{stamp}.json", "application/json", width="stretch",
                            disabled=not ss.history)
     with c2, st.container(border=True):
@@ -705,18 +708,18 @@ with tab_export:
         st.caption("Save the processed library (text + embeddings) and restore it later — no re-processing or "
                    "embedding costs.")
         if has_docs:
-            st.download_button("⇩ Save library (.zip)", index.to_bytes(), f"rag-document-studio-library-{stamp}.zip",
+            st.download_button("💾 Save library (.zip)", index.to_bytes(), f"rag-document-studio-library-{stamp}.zip",
                                "application/zip", width="stretch", type="primary")
-            st.download_button("⇩ Passages (JSON)", json.dumps(index.chunks, ensure_ascii=False, indent=1),
+            st.download_button("🧩 Passages (JSON)", json.dumps(index.chunks, ensure_ascii=False, indent=1),
                                f"passages-{stamp}.json", "application/json", width="stretch")
         saved = st.file_uploader("Restore a saved library", type=["zip"], key=f"restore_{ss.nonce}")
-        if saved and st.button("↺ Restore library", width="stretch"):
+        if saved and st.button("♻️ Restore library", width="stretch"):
             try:
                 count = restore_library(saved.getvalue())
                 ss.report = {"added": [f"{count} document(s) from saved library"], "skipped": [], "failed": []}
                 ss.nonce += 1
                 st.rerun()
-            except ValueError as e:
-                st.error(str(e))
-    st.caption("Saved libraries contain your document text. Store them as carefully as the originals.")
+            except Exception as e:  # noqa: BLE001 — any damaged/foreign file
+                st.error(f"⚠️ {e if isinstance(e, ValueError) else 'This file could not be restored.'}")
+    st.caption("🔐 Saved libraries contain your document text. Store them as carefully as the originals.")
 

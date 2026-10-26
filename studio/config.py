@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 
 APP_NAME = "Document Studio"
-VERSION = "2.0"
+VERSION = "2.1"
 
 # ── Limits ──────────────────────────────────────────────────────────────
 MAX_FILES_PER_BATCH = 20
@@ -37,6 +37,28 @@ ANSWER_STYLES = {
 }
 
 RETRIEVAL_MODES = ["Hybrid", "Semantic", "Keyword"]
+
+# ── AI agent personas & languages (added to the answer-style instruction) ──
+PERSONAS = {
+    "🧠 Research analyst": "",
+    "🎓 Teacher (explain simply)": "Explain like a patient teacher: plain words, define jargon, give a short example when helpful.",
+    "💼 Executive briefing": "Write for a busy executive: lead with the bottom line, then the key numbers and decisions.",
+    "⚖️ Legal reviewer": "Act as a careful contract reviewer: highlight obligations, deadlines, liabilities and ambiguous wording.",
+    "🛠️ Technical expert": "Be precise and technical: keep exact terms, values, units and steps.",
+}
+
+ANSWER_LANGUAGES = ["🌐 Same as question", "🇬🇧 English", "🇵🇰 Urdu", "🇸🇦 Arabic", "🇮🇳 Hindi",
+                    "🇪🇸 Spanish", "🇫🇷 French", "🇩🇪 German", "🇨🇳 Chinese", "🇹🇷 Turkish"]
+
+# One-click agent tasks shown above the chat box: (label, prompt)
+QUICK_ACTIONS = [
+    ("📝 Summarize", "Summarize the main points of the selected documents."),
+    ("🔢 Key facts", "List the key facts, figures, names and dates in the selected documents."),
+    ("⚠️ Risks", "Which risks, limitations, problems or open issues are mentioned?"),
+    ("📅 Timeline", "Build a chronological timeline of the dates, deadlines and events mentioned."),
+    ("✅ Action items", "List every action item, obligation or next step, with owner and deadline if stated."),
+    ("⚖️ Compare", "Compare the documents: where do they agree, differ or contradict each other?"),
+]
 
 STARTER_QUESTIONS = [
     "Summarize the main points of these documents.",

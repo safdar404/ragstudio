@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="RAG Document Studio AI agent">
+  <defs>
+    <linearGradient id="rb" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff4d6d"/>
+      <stop offset=".18" stop-color="#ff9f1c"/>
+      <stop offset=".34" stop-color="#ffd60a"/>
+      <stop offset=".5" stop-color="#2ee59d"/>
+      <stop offset=".66" stop-color="#22d3ee"/>
+      <stop offset=".82" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#c084fc"/>
+    </linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c1640"/>
+      <stop offset="1" stop-color="#0a0820"/>
+    </linearGradient>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2360"/>
+      <stop offset="1" stop-color="#151036"/>
+    </linearGradient>
+    <radialGradient id="eye" cx=".5" cy=".4" r=".6">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset=".35" stop-color="#7df9ff"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- tile with rainbow ring -->
+  <rect x="4" y="4" width="120" height="120" rx="34" fill="url(#bg)"/>
+  <rect x="5.5" y="5.5" width="117" height="117" rx="32.5" fill="none" stroke="url(#rb)" stroke-width="3"/>
+  <!-- antenna -->
+  <line x1="64" y1="34" x2="64" y2="22" stroke="url(#rb)" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="64" cy="19" r="5.5" fill="#ffd60a" filter="url(#glow)"/>
+  <!-- ears -->
+  <rect x="21" y="56" width="9" height="22" rx="4.5" fill="url(#rb)"/>
+  <rect x="98" y="56" width="9" height="22" rx="4.5" fill="url(#rb)"/>
+  <!-- head -->
+  <rect x="29" y="34" width="70" height="62" rx="22" fill="url(#face)" stroke="url(#rb)" stroke-width="3"/>
+  <!-- visor -->
+  <rect x="37" y="48" width="54" height="24" rx="12" fill="#07051a"/>
+  <circle cx="52" cy="60" r="6.5" fill="url(#eye)" filter="url(#glow)"/>
+  <circle cx="76" cy="60" r="6.5" fill="url(#eye)" filter="url(#glow)"/>
+  <!-- smile -->
+  <path d="M53 82 Q64 89 75 82" fill="none" stroke="#2ee59d" stroke-width="3.5" stroke-linecap="round"/>
+  <!-- sparkle (AI) -->
+  <path d="M102 24 l2.6 6.4 6.4 2.6 -6.4 2.6 -2.6 6.4 -2.6 -6.4 -6.4 -2.6 6.4 -2.6z" fill="#ff4d8d" filter="url(#glow)"/>
+  <!-- document badge -->
+  <g transform="translate(84 84)">
+    <rect x="0" y="0" width="28" height="32" rx="6" fill="#ffffff" stroke="url(#rb)" stroke-width="2.5"/>
+    <rect x="6" y="9" width="16" height="3" rx="1.5" fill="#6366f1"/>
+    <rect x="6" y="15" width="12" height="3" rx="1.5" fill="#ff9f1c"/>
+    <rect x="6" y="21" width="14" height="3" rx="1.5" fill="#2ee59d"/>
+  </g>
+</svg>

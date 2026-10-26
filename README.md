@@ -1,4 +1,4 @@
-# ✦ Document Studio 2.0
+# 🤖 RAG Document Studio 2.1 — AI document agent
 
 Ask questions across PDFs, Word files, images, text, Markdown and CSV, and inspect every passage behind each answer.
 
@@ -7,15 +7,27 @@ Ask questions across PDFs, Word files, images, text, Markdown and CSV, and inspe
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m streamlit run rag.py --server.port 8503
+.\.venv\Scripts\python.exe -m streamlit run rag2.py --server.port 8503
 ```
 
-macOS/Linux: `python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/streamlit run rag.py`
+macOS/Linux: `python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/streamlit run rag2.py`
 
 Enter your OpenAI API key (or set `OPENAI_API_KEY` and leave the field empty), add documents, and ask.
 An optional **API base URL** lets you use OpenAI-compatible servers (Azure gateways, LiteLLM, vLLM, Ollama).
 
-## What's new in 2.0
+## What's new in 2.1 🌈
+
+- 🎨 **Rainbow AI theme** — one compact stylesheet (`studio/theme.py`) replaces the three stacked theme layers; animated rainbow borders, dark aurora background, mobile-friendly.
+- 🤖 **AI agent logo** (`assets/agent_logo.svg`) — used for the page icon, header, sidebar and the assistant's chat avatar.
+- 🧑‍💼 **Agent personas** — Research analyst, Teacher, Executive briefing, Legal reviewer, Technical expert.
+- 🌍 **Answer language** — reply in the question's language or force English, Urdu, Arabic, Hindi, Spanish, French, German, Chinese or Turkish.
+- ⚡ **Quick actions** — one-click Summarize, Key facts, Risks, Timeline, Action items and Compare.
+- 📌 **Notebook** — pin answers, review them in their own tab and download them as Markdown.
+- 📋 **Copy / ⬇️ Save** any single answer; ⏱️ response time and 🪙 token usage shown per answer.
+- 📊 **Insights tab** (free, no API calls) — library metrics, words-per-document chart, file types, top keywords per document, and an instant keyword finder.
+- 🧪 Offline test suite in `tests/` (`python -m pytest -q`).
+
+## What was new in 2.0
 
 **Retrieval (RAG)**
 - **Hybrid search** — semantic embeddings + BM25 keyword search, merged with Reciprocal Rank Fusion. Exact terms (codes, names, numbers) are no longer missed. Semantic-only and keyword-only modes are also available.
@@ -47,7 +59,7 @@ An optional **API base URL** lets you use OpenAI-compatible servers (Azure gatew
 ## Project layout
 
 ```
-rag.py                 Streamlit app (UI and flow)
+rag2.py                Streamlit app (UI and flow)
 studio/config.py       limits, defaults, RetrievalSettings
 studio/extractors.py   PDF / Word / image / TXT / MD / CSV extraction
 studio/chunking.py     sentence-aware chunking + contextual headers
@@ -55,7 +67,9 @@ studio/index.py        vector store + BM25, add/remove, save/restore
 studio/pipeline.py     rewrite → multi-query → hybrid search → RRF → re-rank/MMR → context
 studio/llm.py          OpenAI wrapper: embeddings, streaming, helpers, usage tracking
 studio/prompts.py      prompt templates
-studio/ui.py           CSS theme and HTML components (all text escaped)
+studio/ui.py           HTML components (all text escaped)
+studio/theme.py        rainbow AI theme (CSS) + logo loader
+studio/insights.py     offline analytics & keyword finder
 tests/                 offline tests (fake model, no API key needed)
 ```
 
@@ -70,4 +84,7 @@ Run tests: `pip install pytest reportlab` then `python -m pytest -q`.
 
 ## Limits & privacy
 Up to 20 files per batch, 25 MB each, 500 PDF pages, 6,000 passages per library. Images are resized to 2,000 px per side; small text may lose detail.
-Document text, images and questions are sent to the configured API; usage may incur charges. The key, library and chat live in the browser session only — save the library and export chats to keep them. Saved libraries contain your document text. No authentication or multi-user storage is included. Transcriptions and AI citations should be reviewed for important decisions.
+Document text, images and questions are sent to the configured API; usage may incur charges. The key, library and chat are held in server memory for the current session — save the library and export chats to keep them. Saved libraries contain your document text. No authentication or multi-user storage is included. Transcriptions and AI citations should be reviewed for important decisions.
+
+## Streamlit Cloud deployment
+Use `rag2.py` as the main file. Optionally configure `OPENAI_API_KEY` in Streamlit Secrets; visitors can also enter their own key. Changing the key clears the current workspace, so export anything you want to keep first.
